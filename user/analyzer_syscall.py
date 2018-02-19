@@ -1,6 +1,5 @@
 #! /usr/bin/env python
 
-import sys
 import re
 import analyzer_transaction
 import argparse
@@ -204,14 +203,13 @@ class AnalyzerSyscall(analyzer_transaction.Analyzer):
         return self.p_exit_cr3.search(s)
 
 
-def show_transactions(tracs, cr3_filter=None):
-    if cr3_filter:
-        for t in tracs:
-            if cr3_filter == t['cr3']:
-                print(repr(t))
-    else:
-        for t in tracs:
-            print(repr(t))
+def show_transactions(tracs, cr3_filter=None, nmi=False):
+    for t in tracs:
+        if cr3_filter and not cr3_filter == t['cr3']:
+            continue
+        if nmi and "EXCEPTION_NMI" in t['events']:
+            continue
+        print(repr(t))
 
 
 def show_syscall_trace(tracs):
@@ -225,11 +223,12 @@ if __name__ == '__main__':
     parser.add_argument('target_vcpu', metavar='target vcpu')
     parser.add_argument('--cr3', nargs='?', metavar='cr3 filtering')
     parser.add_argument('--syscall', action='store_true')
+    parser.add_argument('--ignore_nmi', action='store_true')
 
     args = parser.parse_args()
     with open(args.filename) as f:
         a = AnalyzerSyscall(f, args.target_vcpu)
         a.create_transactions()
-        show_transactions(a.tracs, cr3_filter=args.cr3)
+        show_transactions(a.tracs, cr3_filter=args.cr3, nmi=args.ignore_nmi)
         if args.syscall:
             show_syscall_trace(a.systracs)
