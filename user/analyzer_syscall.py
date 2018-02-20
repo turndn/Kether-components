@@ -6,6 +6,24 @@ import argparse
 from analyzer_syscall_table import syscalltable
 
 
+class transactions_syscall(dict):
+    def __repr__(self):
+        keys = self.keys()
+        if "syscall" in keys:
+            first = "syscall:{} ".format(self['syscall'])
+        elif "sysret" in keys:
+            first = "sysret:{} ".format(self['sysret'])
+        else:
+            first = ""
+        if "execve" in keys:
+            execve = "execve:{} ".format(self['execve'])
+        else:
+            execve = ""
+        return "{} {}{}cr3:{} cpl:{} events:{}".format(
+            self['events'][0], first, execve, self['cr3'],
+            self['cpl'], self['events'])
+
+
 class AnalyzerSyscall(analyzer_transaction.Analyzer):
     def __init__(self, f, target_vcpu):
         super(AnalyzerSyscall, self).__init__(f, target_vcpu)
@@ -18,7 +36,7 @@ class AnalyzerSyscall(analyzer_transaction.Analyzer):
         self.systracs = []
 
     def behavior(self, exit_reason):
-        transaction = {}
+        transaction = transactions_syscall()
         events = [exit_reason]
         while True:
             s = self.f.readline()
