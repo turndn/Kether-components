@@ -16,11 +16,13 @@ class transactions_syscall(dict):
         else:
             first = ""
         if "execve" in keys:
-            execve = "execve:{} ".format(self['execve'])
+            filename = "execve:{} ".format(self['execve'])
+        elif "open" in keys:
+            filename = "open:{} ".format(self['open'])
         else:
-            execve = ""
+            filename = ""
         return "{} {}{}cr3:{} cpl:{} events:{}".format(
-            self['events'][0], first, execve, self['cr3'],
+            self['events'][0], first, filename, self['cr3'],
             self['cpl'], self['events'])
 
 
@@ -31,6 +33,7 @@ class AnalyzerSyscall(analyzer_transaction.Analyzer):
         self.p_syscall = re.compile("kvm_linux_em_syscall")
         self.p_sysret = re.compile("kvm_em_sysret")
         self.p_execve = re.compile("kvm_execve_filename")
+        self.p_open = re.compile("kvm_open_filename")
         self.p_exit_cr3 = re.compile("kvm_exit_cr3")
         self.p_extract_filename = re.compile(" |\n")
         self.systracs = []
@@ -55,6 +58,8 @@ class AnalyzerSyscall(analyzer_transaction.Analyzer):
                 transaction['sysret'] = self.extract_sysret(s)
             elif self.is_execve(s):
                 transaction['execve'] = self.extract_execve(s)
+            elif self.is_open(s):
+                transaction['open'] = self.extract_open(s)
             elif self.is_exit_cr3(s):
                 cr3_data = self.extract_exit_cr3(s)
                 transaction["cr3"] = cr3_data[0]
@@ -91,6 +96,17 @@ class AnalyzerSyscall(analyzer_transaction.Analyzer):
             self.systracs.append(execve)
             return execve
 
+    def extract_open(self, s):
+        ms = self.p_event.split(s)
+        if ms:
+            ret_str = []
+            filename = self.p_extract_filename.split(ms[2])[4:-2]
+            for c in filename:
+                ret_str.append(chr(int("0x{}".format(c), 16)))
+            openfile = ["open", "".join(ret_str)]
+            self.systracs.append(openfile)
+            return openfile
+
     def extract_rax_value(self, s, sysret=False):
         ms = self.p_event.split(s)
         if ms:
@@ -118,6 +134,9 @@ class AnalyzerSyscall(analyzer_transaction.Analyzer):
 
     def is_execve(self, s):
         return self.p_execve.search(s)
+
+    def is_open(self, s):
+        return self.p_open.search(s)
 
     def is_exit_cr3(self, s):
         return self.p_exit_cr3.search(s)
