@@ -7,31 +7,28 @@ from analyzer_syscall_table import syscalltable
 
 
 class transactions_syscall(dict):
+    def __init__(self, **kwarg):
+        super(dict, self).__init__(**kwarg)
+        self.item_table = {
+            'syscall': ['syscall', 'sysret'],
+            'file': ['execve', 'open'],
+            'set_cr3': ['set_cr3'],
+        }
+
     def __repr__(self):
-        keys = self.keys()
-        if "syscall" in keys:
-            first = "syscall: {} ".format(self['syscall'])
-        elif "sysret" in keys:
-            first = "sysret: {} ".format(self['sysret'])
-        else:
-            first = ""
-        if "execve" in keys:
-            filename = "execve: {} ".format(self['execve'])
-        elif "open" in keys:
-            filename = "open: {} ".format(self['open'])
-        else:
-            filename = ""
-        if "set_cr3" in keys:
-            set_cr3 = "set_cr3: {} ".format(self['set_cr3'])
-        else:
-            set_cr3 = ""
-        if "track_cr3" in keys:
-            track_cr3 = "track_cr3: {} ".format(self['track_cr3'])
-        else:
-            track_cr3 = ""
-        return "{} {}{}{}{}cr3: {} cpl: {} events: {}".format(
-            self['events'][0], first, filename, set_cr3, track_cr3,
+        s = {}
+        for key in self.item_table:
+            s[key] = self.repr_items(self.item_table[key])
+
+        return "{} {}{}{}cr3: {} cpl: {} events: {}".format(
+            self['events'][0], s['syscall'], s['file'], s['set_cr3'],
             self['vmexit']['cr3'], self['vmexit']['cpl'], self['events'])
+
+    def repr_items(self, keys):
+        for key in keys:
+            if key in self:
+                return "{}: {} ".format(key, self[key])
+        return ""
 
 
 class AnalyzerSyscall(analyzer_transaction.Analyzer):
@@ -224,24 +221,6 @@ class AnalyzerSyscall(analyzer_transaction.Analyzer):
         if ms:
             components = ms[2].split(" ")
             return (components[10], components[12])
-
-    def is_set_cr3(self, s):
-        return self.p_set_cr3.search(s)
-
-    def is_syscall(self, s):
-        return self.p_syscall.search(s)
-
-    def is_sysret(self, s):
-        return self.p_sysret.search(s)
-
-    def is_execve(self, s):
-        return self.p_execve.search(s)
-
-    def is_open(self, s):
-        return self.p_open.search(s)
-
-    def is_exit_cr3(self, s):
-        return self.p_exit_cr3.search(s)
 
 
 def show_transactions(tracs):
