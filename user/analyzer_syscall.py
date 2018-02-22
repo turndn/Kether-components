@@ -38,7 +38,7 @@ class transactions_syscall(dict):
         for key in keys:
             if key in self:
                 return "{}: cmd={} val={} ".format(key,
-                                                   msr_table(self[key]['cmd']),
+                                                   msr_table[self[key]['cmd']],
                                                    self[key]['val'])
 
 
@@ -56,6 +56,7 @@ class AnalyzerSyscall(analyzer_transaction.Analyzer):
         self.process_set = []
         self.shadow_process_set = []
         self.track_cr3 = False
+        self.track_cr3_force = False
         self.save_cr3 = False
         self.tmp_preemp = False
 
@@ -98,7 +99,7 @@ class AnalyzerSyscall(analyzer_transaction.Analyzer):
         return True
 
     def add_process_set(self, cr3):
-        if self.tmp_preemp:
+        if self.tmp_preemp and not self.track_cr3_force:
             self.tmp_preemp = False
             self.track_cr3 = False
             return
@@ -108,6 +109,8 @@ class AnalyzerSyscall(analyzer_transaction.Analyzer):
             self.shadow_process_set.append(cr3)
             print("{}".format(self.shadow_process_set))
         self.track_cr3 = False
+        self.track_cr3_force = False
+        self.tmp_preemp = False
 
     def remove_process_set(self, cr3):
         self.process_set.remove(cr3)
@@ -191,6 +194,7 @@ class AnalyzerSyscall(analyzer_transaction.Analyzer):
         filename = self.extract_execve(s)
         if self.target_bin in filename:
             self.track_cr3 = True
+            self.track_cr3_force = True
             self.trac_enable = True
         return filename
 
