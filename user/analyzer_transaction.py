@@ -22,7 +22,9 @@ class Analyzer(object):
             if not self.is_target_vcpu(s):
                 continue
             if self.is_kvm_exit(s):
-                self.tracs.append(self.behavior(self.get_exit_reason(s)))
+                val, ignored = self.behavior(self.get_exit_reason(s))
+                if not ignored:
+                    self.tracs.append(val)
 
     def is_target_vcpu(self, s):
         if self.vcpu in s:
@@ -40,7 +42,7 @@ class Analyzer(object):
             else:
                 event = self.extract_event(s)
                 transaction.append(event)
-        return transaction
+        return transaction, False
 
     def extract_event(self, s):
         ms = self.p_event.split(s)
