@@ -4,6 +4,7 @@ import re
 import analyzer_transaction
 import argparse
 from analyzer_syscall_table import syscalltable
+from analyzer_msr_table import msr_table
 
 
 class transactions_syscall(dict):
@@ -37,7 +38,7 @@ class transactions_syscall(dict):
         for key in keys:
             if key in self:
                 return "{}: cmd={} val={} ".format(key,
-                                                   self[key]['cmd'],
+                                                   msr_table(self[key]['cmd']),
                                                    self[key]['val'])
 
 
