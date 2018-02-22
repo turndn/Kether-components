@@ -10,27 +10,35 @@ class transactions_syscall(dict):
     def __init__(self, **kwarg):
         super(dict, self).__init__(**kwarg)
         self.item_table = {
-            'syscall': ['syscall', 'sysret'],
-            'file': ['execve', 'open'],
-            'set_cr3': ['set_cr3'],
-            'cpuid': ['cpuid']
+            'syscall': [['syscall', 'sysret'], self.repr_items],
+            'file': [['execve', 'open'], self.repr_items],
+            'set_cr3': [['set_cr3'], self.repr_items],
+            'cpuid': [['cpuid'], self.repr_items],
+            'msr': [['msr_read', 'msr_write'], self.repr_msr],
         }
 
     def __repr__(self):
-        s = {}
+        detail = []
         for key in self.item_table:
-            s[key] = self.repr_items(self.item_table[key])
-
-        return "{} {}{}{}{}cr3: {} cpl: {} events: {}".format(
-            self['events'][0], s['syscall'], s['file'], s['set_cr3'],
-            s['cpuid'], self['vmexit']['cr3'], self['vmexit']['cpl'],
-            self['events'])
+            tmp = (self.item_table[key][1](self.item_table[key][0]))
+            if tmp:
+                detail.append(tmp)
+        return "{} {}cr3: {} cpl: {} events: {}".format(
+            self['events'][0], "".join(detail), self['vmexit']['cr3'],
+            self['vmexit']['cpl'], self['events'])
 
     def repr_items(self, keys):
         for key in keys:
             if key in self:
                 return "{}: {} ".format(key, self[key])
         return ""
+
+    def repr_msr(self, keys):
+        for key in keys:
+            if key in self:
+                return "{}: cmd={} val={} ".format(key,
+                                                   self[key]['cmd'],
+                                                   self[key]['val'])
 
 
 class AnalyzerSyscall(analyzer_transaction.Analyzer):
@@ -60,6 +68,8 @@ class AnalyzerSyscall(analyzer_transaction.Analyzer):
             'open': [re.compile("kvm_open_filename"), self.extract_open],
             'vmexit': [re.compile("kvm_exit_cr3"), self.handle_exit_cr3],
             'cpuid': [re.compile("kvm_cpuid"), self.extract_cpuid],
+            'msr_read': [re.compile("msr_read"), self.extract_msr],
+            'msr_write': [re.compile("msr_write"), self.extract_msr],
         }
         return event_table
 
@@ -230,6 +240,12 @@ class AnalyzerSyscall(analyzer_transaction.Analyzer):
         if ms:
             value = ms[2].split(" ")[11:]
             return value[1]
+
+    def extract_msr(self, s):
+        ms = self.p_event.split(s)
+        if ms:
+            value = ms[2].split(" ")[13:]
+            return {'cmd': value[1], 'val': value[3][:-1]}
 
 
 def show_transactions(tracs):
