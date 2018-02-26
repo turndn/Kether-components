@@ -1,0 +1,163 @@
+diff --git a/arch/x86/kvm/trace.h b/arch/x86/kvm/trace.h
+index 0a6cc6754ec5..840cd8d7a832 100644
+--- a/arch/x86/kvm/trace.h
++++ b/arch/x86/kvm/trace.h
+@@ -245,6 +245,28 @@ TRACE_EVENT(kvm_exit,
+     __entry->guest_rip, __entry->info1, __entry->info2)
+ );
+ 
++/*
++ * Tracepoint for readin cr3 value:
++ */
++TRACE_EVENT(kvm_exit_cr3,
++ TP_PROTO(unsigned long guest_cr3, int cpl),
++ TP_ARGS(guest_cr3, cpl),
++
++ TP_STRUCT__entry(
++   __field(  unsigned long,  guest_cr3)
++   __field(  int,  cpl)
++ ),
++
++ TP_fast_assign(
++   __entry->guest_cr3  = guest_cr3;
++   __entry->cpl    = cpl;
++ ),
++
++ TP_printk("guest cr3 %lx cpl %d",
++     __entry->guest_cr3,
++     __entry->cpl)
++)
++
+ /*
+  * Tracepoint for kvm interrupt injection:
+  */
+@@ -760,6 +782,129 @@ TRACE_EVENT(kvm_emulate_insn,
+ #define trace_kvm_emulate_insn_start(vcpu) trace_kvm_emulate_insn(vcpu, 0)
+ #define trace_kvm_emulate_insn_failed(vcpu) trace_kvm_emulate_insn(vcpu, 1)
+ 
++/*
++ * Tracepoint for linux syscall
++ * Linux syscall calling convention:
++ * rdi, rsi, rdx, r10, r8, r9
++ */
++TRACE_EVENT(kvm_linux_em_syscall,
++ TP_PROTO(unsigned long syscall_num, struct syscall_arguments *sargs),
++ TP_ARGS(syscall_num, sargs),
++
++ TP_STRUCT__entry(
++   __field(    unsigned long, syscall_num                 )
++   __field(    unsigned long, a0                          )
++   __field(    unsigned long, a1                          )
++   __field(    unsigned long, a2                          )
++   __field(    unsigned long, a3                          )
++   __field(    unsigned long, a4                          )
++   __field(    unsigned long, a5                          )
++   ),
++
++ TP_fast_assign(
++   __entry->syscall_num = syscall_num;
++   __entry->a0 = sargs->rdi;
++   __entry->a1 = sargs->rsi;
++   __entry->a2 = sargs->rdx;
++   __entry->a3 = sargs->r10;
++   __entry->a4 = sargs->r8;
++   __entry->a5 = sargs->r9;
++   ),
++
++ TP_printk("rax 0x%lx args 0x%lx 0x%lx 0x%lx 0x%lx 0x%lx 0x%lx",
++     __entry->syscall_num,
++     __entry->a0,
++     __entry->a1,
++     __entry->a2,
++     __entry->a3,
++     __entry->a4,
++     __entry->a5)
++);
++
++/*
++ * Tracepoint for windows syscall
++ * Windows syscall calling convention:
++ * rcx, rdx, r8, r9, rsp + ?, rsp + ? + 8, rsp + ? + 16
++ * TODO:
++ * Implement arguments from 4 to 7.
++ */
++TRACE_EVENT(kvm_windows_em_syscall,
++ TP_PROTO(unsigned long syscall_num, struct syscall_arguments *sargs),
++ TP_ARGS(syscall_num, sargs),
++
++ TP_STRUCT__entry(
++   __field(    unsigned long, syscall_num                 )
++   __field(    unsigned long, a0                          )
++   __field(    unsigned long, a1                          )
++   __field(    unsigned long, a2                          )
++   __field(    unsigned long, a3                          )
++   ),
++
++ TP_fast_assign(
++   __entry->syscall_num = syscall_num;
++   __entry->a0 = sargs->rcx;
++   __entry->a1 = sargs->rdx;
++   __entry->a2 = sargs->r8;
++   __entry->a3 = sargs->r9;
++   ),
++
++ TP_printk("rax 0x%lx args 0x%lx 0x%lx 0x%lx 0x%lx",
++     __entry->syscall_num,
++     __entry->a0,
++     __entry->a1,
++     __entry->a2,
++     __entry->a3)
++);
++
++TRACE_EVENT(kvm_em_sysret,
++ TP_PROTO(unsigned long ret_val),
++ TP_ARGS(ret_val),
++
++ TP_STRUCT__entry(
++   __field(    unsigned long, ret_val                 )
++   ),
++
++ TP_fast_assign(
++   __entry->ret_val = ret_val;
++   ),
++
++ TP_printk("rax 0x%lx", __entry->ret_val)
++);
++
++TRACE_EVENT(kvm_execve_filename,
++ TP_PROTO(__u8 *filename, unsigned long len),
++ TP_ARGS(filename, len),
++
++ TP_STRUCT__entry(
++   __array(    __u8,  filename,    32           )
++   __field(    unsigned long,  len              )
++   ),
++
++ TP_fast_assign(
++   __entry->len = len;
++   memcpy(__entry->filename, filename, 32);
++   ),
++
++ TP_printk("execve %s", __print_hex(__entry->filename, __entry->len))
++);
++
++TRACE_EVENT(kvm_open_filename,
++ TP_PROTO(__u8 *filename, unsigned long len),
++ TP_ARGS(filename, len),
++
++ TP_STRUCT__entry(
++   __array(    __u8,  filename,    32           )
++   __field(    unsigned long,  len              )
++   ),
++
++ TP_fast_assign(
++   __entry->len = len;
++   memcpy(__entry->filename, filename, 32);
++   ),
++
++ TP_printk("open %s", __print_hex(__entry->filename, __entry->len))
++);
++
+ TRACE_EVENT(
+  vcpu_match_mmio,
+  TP_PROTO(gva_t gva, gpa_t gpa, bool write, bool gpa_match),

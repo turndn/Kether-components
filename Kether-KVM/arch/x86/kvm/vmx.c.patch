@@ -1,0 +1,41 @@
+diff --git a/arch/x86/kvm/vmx.c b/arch/x86/kvm/vmx.c
+index 270d83da090c..9a8cd469e850 100644
+--- a/arch/x86/kvm/vmx.c
++++ b/arch/x86/kvm/vmx.c
+@@ -4142,8 +4142,7 @@ static void ept_update_paging_mode_cr0(unsigned long *hw_cr0,
+    /* From nonpaging to paging */
+    vmcs_write32(CPU_BASED_VM_EXEC_CONTROL,
+           vmcs_read32(CPU_BASED_VM_EXEC_CONTROL) &
+-          ~(CPU_BASED_CR3_LOAD_EXITING |
+-            CPU_BASED_CR3_STORE_EXITING));
++          ~(CPU_BASED_CR3_STORE_EXITING));
+    vcpu->arch.cr0 = cr0;
+    vmx_set_cr4(vcpu, kvm_read_cr4(vcpu));
+  }
+@@ -5122,6 +5121,9 @@ static u32 vmx_exec_control(struct vcpu_vmx *vmx)
+    exec_control |= CPU_BASED_CR3_STORE_EXITING |
+        CPU_BASED_CR3_LOAD_EXITING  |
+        CPU_BASED_INVLPG_EXITING;
++
++ exec_control |= CPU_BASED_CR3_LOAD_EXITING;
++
+  return exec_control;
+ }
+ 
+@@ -8348,10 +8350,16 @@ static int vmx_handle_exit(struct kvm_vcpu *vcpu)
+  struct vcpu_vmx *vmx = to_vmx(vcpu);
+  u32 exit_reason = vmx->exit_reason;
+  u32 vectoring_info = vmx->idt_vectoring_info;
++ unsigned long guest_cr3;
++ int cpl;
+ 
+  trace_kvm_exit(exit_reason, vcpu, KVM_ISA_VMX);
+  vcpu->arch.gpa_available = false;
+ 
++ guest_cr3 = kvm_read_cr3(vcpu);
++ cpl = vmx_get_cpl(vcpu);
++ trace_kvm_exit_cr3(guest_cr3, cpl);
++
+  /*
+   * Flush logged GPAs PML buffer, this will make dirty_bitmap more
+   * updated. Another good is, in kvm_vm_ioctl_get_dirty_log, before

@@ -1,0 +1,127 @@
+diff --git a/arch/x86/kvm/x86.c b/arch/x86/kvm/x86.c
+index 0e846f0cb83b..73a1fd85e28d 100644
+--- a/arch/x86/kvm/x86.c
++++ b/arch/x86/kvm/x86.c
+@@ -109,6 +109,9 @@ module_param(ignore_msrs, bool, S_IRUGO | S_IWUSR);
+ unsigned int min_timer_period_us = 500;
+ module_param(min_timer_period_us, uint, S_IRUGO | S_IWUSR);
+ 
++static bool trace_syscall_guest_linux = true;
++module_param(trace_syscall_guest_linux, bool, S_IRUGO | S_IWUSR);
++
+ static bool __read_mostly kvmclock_periodic_sync = true;
+ module_param(kvmclock_periodic_sync, bool, S_IRUGO);
+ 
+@@ -803,7 +806,6 @@ int kvm_set_cr3(struct kvm_vcpu *vcpu, unsigned long cr3)
+ #ifdef CONFIG_X86_64
+  cr3 &= ~CR3_PCID_INVD;
+ #endif
+-
+  if (cr3 == kvm_read_cr3(vcpu) && !pdptrs_changed(vcpu)) {
+    kvm_mmu_sync_roots(vcpu);
+    kvm_make_request(KVM_REQ_TLB_FLUSH, vcpu);
+@@ -5229,6 +5231,29 @@ static void emulator_set_hflags(struct x86_emulate_ctxt *ctxt, unsigned emul_fla
+  kvm_set_hflags(emul_to_vcpu(ctxt), emul_flags);
+ }
+ 
++static void trace_em_syscall(ulong syscall_num, struct syscall_arguments *sargs)
++{
++ if (trace_syscall_guest_linux)
++   trace_kvm_linux_em_syscall(syscall_num, sargs);
++ else
++   trace_kvm_windows_em_syscall(syscall_num, sargs);
++}
++
++static void trace_em_sysret(ulong ret_val)
++{
++ trace_kvm_em_sysret(ret_val);
++}
++
++static void trace_execve_filename(u8 *filename, ulong len)
++{
++ trace_kvm_execve_filename(filename, len);
++}
++
++static void trace_open_filename(u8 *filename, ulong len)
++{
++ trace_kvm_open_filename(filename, len);
++}
++
+ static const struct x86_emulate_ops emulate_ops = {
+  .read_gpr            = emulator_read_gpr,
+  .write_gpr           = emulator_write_gpr,
+@@ -5270,6 +5295,10 @@ static const struct x86_emulate_ops emulate_ops = {
+  .set_nmi_mask        = emulator_set_nmi_mask,
+  .get_hflags          = emulator_get_hflags,
+  .set_hflags          = emulator_set_hflags,
++ .trace_kvm_em_syscall = trace_em_syscall,
++ .trace_kvm_em_sysret = trace_em_sysret,
++ .trace_kvm_execve    = trace_execve_filename,
++ .trace_kvm_open      = trace_open_filename,
+ };
+ 
+ static void toggle_interruptibility(struct kvm_vcpu *vcpu, u32 mask)
+@@ -6188,6 +6217,26 @@ static int kvm_pv_clock_pairing(struct kvm_vcpu *vcpu, gpa_t paddr,
+ }
+ #endif
+ 
++static int kvm_clear_msr_efer_sce(struct kvm_vcpu *vcpu)
++{
++ struct msr_data msr_info;
++ int ret = 0;
++
++ msr_info.index = MSR_EFER;
++ msr_info.host_initiated = false;
++ if (kvm_get_msr(vcpu, &msr_info))
++   trace_kvm_msr_read_ex(MSR_LSTAR);
++
++ msr_info.data &= ~(u64)EFER_SCE;
++ if (kvm_set_msr(vcpu, &msr_info) != 0) {
++   trace_kvm_msr_write_ex(msr_info.index, msr_info.data);
++   kvm_inject_gp(vcpu, 0);
++   return 1;
++ }
++
++ return ret;
++}
++
+ /*
+  * kvm_pv_kick_cpu_op:  Kick a vcpu.
+  *
+@@ -6238,11 +6287,13 @@ int kvm_emulate_hypercall(struct kvm_vcpu *vcpu)
+    a2 &= 0xFFFFFFFF;
+    a3 &= 0xFFFFFFFF;
+  }
+-
+- if (kvm_x86_ops->get_cpl(vcpu) != 0) {
+-   ret = -KVM_EPERM;
+-   goto out;
+- }
++ /*
++  * Allow vmcall from userspace (for debug)
++  * if (kvm_x86_ops->get_cpl(vcpu) != 0) {
++  *  ret = -KVM_EPERM;
++  *  goto out;
++  * }
++  */
+ 
+  switch (nr) {
+  case KVM_HC_VAPIC_POLL_IRQ:
+@@ -6257,6 +6308,9 @@ int kvm_emulate_hypercall(struct kvm_vcpu *vcpu)
+    ret = kvm_pv_clock_pairing(vcpu, a0, a1);
+    break;
+ #endif
++ case KVM_CLEAR_MSR_EFER_SCE:
++   ret = kvm_clear_msr_efer_sce(vcpu);
++   break;
+  default:
+    ret = -KVM_ENOSYS;
+    break;
+@@ -8703,6 +8757,7 @@ bool kvm_vector_hashing_enabled(void)
+ EXPORT_SYMBOL_GPL(kvm_vector_hashing_enabled);
+ 
+ EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_exit);
++EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_exit_cr3);
+ EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_fast_mmio);
+ EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_inj_virq);
+ EXPORT_TRACEPOINT_SYMBOL_GPL(kvm_page_fault);

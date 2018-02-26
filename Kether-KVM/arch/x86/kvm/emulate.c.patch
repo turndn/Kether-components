@@ -1,0 +1,184 @@
+diff --git a/arch/x86/kvm/emulate.c b/arch/x86/kvm/emulate.c
+index 80890dee66ce..10e0f45c9303 100644
+--- a/arch/x86/kvm/emulate.c
++++ b/arch/x86/kvm/emulate.c
+@@ -2686,14 +2686,75 @@ static bool em_syscall_is_enabled(struct x86_emulate_ctxt *ctxt)
+ 	return false;
+ }
+ 
++static void get_syscall_arguments(struct x86_emulate_ctxt *ctxt,
++				  struct syscall_arguments *sargs)
++{
++	sargs->rdi = reg_read(ctxt, VCPU_REGS_RDI);
++	sargs->rsi = reg_read(ctxt, VCPU_REGS_RSI);
++	sargs->rcx = reg_read(ctxt, VCPU_REGS_RCX);
++	sargs->rdx = reg_read(ctxt, VCPU_REGS_RDX);
++	sargs->r10 = reg_read(ctxt, VCPU_REGS_R10);
++	sargs->r8 = reg_read(ctxt, VCPU_REGS_R8);
++	sargs->r9 = reg_read(ctxt, VCPU_REGS_R9);
++}
++
++static void get_execve_filename(struct x86_emulate_ctxt *ctxt, gva_t gva)
++{
++	struct x86_exception e;
++	u8 filename[32];
++	ulong len = 0;
++	ulong i = 0;
++
++	ctxt->ops->read_std(ctxt, gva, filename, sizeof(filename), &e);
++
++	for (i = 0; i < 32; i++, len++) {
++		if (filename[i] == '\0')
++			break;
++	}
++
++	ctxt->ops->trace_kvm_execve(filename, len + 1);
++}
++
++static void get_open_filename(struct x86_emulate_ctxt *ctxt, gva_t gva)
++{
++	struct x86_exception e;
++	u8 filename[32];
++	ulong len = 0;
++	ulong i = 0;
++
++	ctxt->ops->read_std(ctxt, gva, filename, sizeof(filename), &e);
++
++	for (i = 0; i < 32; i++, len++) {
++		if (filename[i] == '\0')
++			break;
++	}
++
++	ctxt->ops->trace_kvm_open(filename, len + 1);
++}
++
+ static int em_syscall(struct x86_emulate_ctxt *ctxt)
+ {
+ 	const struct x86_emulate_ops *ops = ctxt->ops;
+ 	struct desc_struct cs, ss;
++	struct syscall_arguments sargs;
++	ulong syscall_num;
++	ulong fptr;
+ 	u64 msr_data;
+ 	u16 cs_sel, ss_sel;
+ 	u64 efer = 0;
+ 
++	/* trace syscall information */
++	syscall_num = reg_read(ctxt, VCPU_REGS_RAX);
++	if (syscall_num == 59) {
++		fptr = reg_read(ctxt, VCPU_REGS_RDI);
++		get_execve_filename(ctxt, fptr);
++	} else if (syscall_num == 2) {
++		fptr = reg_read(ctxt, VCPU_REGS_RDI);
++		get_open_filename(ctxt, fptr);
++	}
++	get_syscall_arguments(ctxt, &sargs);
++	ops->trace_kvm_em_syscall(syscall_num, &sargs);
++
+ 	/* syscall is not available in real mode */
+ 	if (ctxt->mode == X86EMUL_MODE_REAL ||
+ 	    ctxt->mode == X86EMUL_MODE_VM86)
+@@ -2705,8 +2766,11 @@ static int em_syscall(struct x86_emulate_ctxt *ctxt)
+ 	ops->get_msr(ctxt, MSR_EFER, &efer);
+ 	setup_syscalls_segments(ctxt, &cs, &ss);
+ 
+-	if (!(efer & EFER_SCE))
+-		return emulate_ud(ctxt);
++	/*
++	 * Disable EFER_SCE for tracing syscall and sysret instruction.
++	 * if (!(efer & EFER_SCE))
++	 *	return emulate_ud(ctxt);
++	 */
+ 
+ 	ops->get_msr(ctxt, MSR_STAR, &msr_data);
+ 	msr_data >>= 32;
+@@ -2746,6 +2810,71 @@ static int em_syscall(struct x86_emulate_ctxt *ctxt)
+ 	return X86EMUL_CONTINUE;
+ }
+ 
++static int em_sysret(struct x86_emulate_ctxt *ctxt)
++{
++	const struct x86_emulate_ops *ops = ctxt->ops;
++	struct desc_struct cs, ss;
++	u16 cs_sel, ss_sel;
++	u64 efer, rcx, r11, msr_data;
++	int usermode;
++	ulong sysret_val;
++
++	/* trace sysret information */
++	sysret_val = reg_read(ctxt, VCPU_REGS_RAX);
++	ops->trace_kvm_em_sysret(sysret_val);
++
++	ops->get_segment(ctxt, &cs_sel, &cs, NULL, VCPU_SREG_CS);
++	ops->get_segment(ctxt, &ss_sel, &ss, NULL, VCPU_SREG_SS);
++	ops->get_msr(ctxt, MSR_EFER, &efer);
++	rcx = reg_read(ctxt, VCPU_REGS_RCX);
++	r11 = reg_read(ctxt, VCPU_REGS_R11);
++	ops->get_msr(ctxt, MSR_STAR, &msr_data);
++	msr_data >>= 48;
++
++	/*
++	 * Allow emulation when EFER_SCE is not set.
++	 * if (cs.l != 1 || !(efer & EFER_LMA) || !(efer & EFER_SCE))
++	 * 	return emulate_ud(ctxt);
++	 */
++	if (cs.l != 1 || !(efer & EFER_LMA))
++		return emulate_ud(ctxt);
++
++	if ((ctxt->rex_prefix & 0x8) != 0)
++		usermode = X86EMUL_MODE_PROT64;
++	else {
++		usermode = X86EMUL_MODE_PROT32;
++		return emulate_ud(ctxt);
++	}
++
++	ctxt->_eip = rcx;
++	ctxt->eflags = (r11 & 0x3c7fd7) | 0x2;
++
++	if (usermode == X86EMUL_MODE_PROT64)
++		cs_sel = msr_data + 16;
++	else
++		cs_sel = msr_data;
++
++	cs_sel |= 3;
++	ss_sel = (msr_data + 8) | 3;
++
++	setup_syscalls_segments(ctxt, &cs, &ss);
++	cs.dpl = 3;
++	ss.dpl = 3;
++
++	if (usermode == X86EMUL_MODE_PROT64) {
++		cs.l = 1;
++		cs.d = 0;
++	} else {
++		cs.l = 0;
++		cs.d = 1;
++	}
++
++	ops->set_segment(ctxt, cs_sel, &cs, 0, VCPU_SREG_CS);
++	ops->set_segment(ctxt, ss_sel, &ss, 0, VCPU_SREG_SS);
++
++	return X86EMUL_CONTINUE;
++}
++
+ static int em_sysenter(struct x86_emulate_ctxt *ctxt)
+ {
+ 	const struct x86_emulate_ops *ops = ctxt->ops;
+@@ -4623,7 +4752,8 @@ static const struct opcode twobyte_table[256] = {
+ 	/* 0x00 - 0x0F */
+ 	G(0, group6), GD(0, &group7), N, N,
+ 	N, I(ImplicitOps | EmulateOnUD, em_syscall),
+-	II(ImplicitOps | Priv, em_clts, clts), N,
++	II(ImplicitOps | Priv, em_clts, clts),
++	I(ImplicitOps | Priv | EmulateOnUD, em_sysret),
+ 	DI(ImplicitOps | Priv, invd), DI(ImplicitOps | Priv, wbinvd), N, N,
+ 	N, D(ImplicitOps | ModRM | SrcMem | NoAccess), N, N,
+ 	/* 0x10 - 0x1F */
+@@ -5455,7 +5585,6 @@ int x86_emulate_insn(struct x86_emulate_ctxt *ctxt)
+ 	ctxt->dst.orig_val64 = ctxt->dst.val64;
+ 
+ special_insn:
+-
+ 	if (unlikely(emul_flags & X86EMUL_GUEST_MASK) && (ctxt->d & Intercept)) {
+ 		rc = emulator_check_intercept(ctxt, ctxt->intercept,
+ 					      X86_ICPT_POST_MEMACCESS);

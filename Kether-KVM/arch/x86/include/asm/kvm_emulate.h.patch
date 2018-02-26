@@ -1,0 +1,32 @@
+diff --git a/arch/x86/include/asm/kvm_emulate.h b/arch/x86/include/asm/kvm_emulate.h
+index 722d0e568863..0c077cd41bc0 100644
+--- a/arch/x86/include/asm/kvm_emulate.h
++++ b/arch/x86/include/asm/kvm_emulate.h
+@@ -25,6 +25,16 @@ struct x86_exception {
+  u64 address; /* cr2 or nested page fault gpa */
+ };
+ 
++struct syscall_arguments {
++ ulong rdi;
++ ulong rsi;
++ ulong rcx;
++ ulong rdx;
++ ulong r10;
++ ulong r8;
++ ulong r9;
++};
++
+ /*
+  * This struct is used to carry enough information from the instruction
+  * decoder to main KVM so that a decision can be made whether the
+@@ -224,6 +234,10 @@ struct x86_emulate_ops {
+ 
+  unsigned (*get_hflags)(struct x86_emulate_ctxt *ctxt);
+  void (*set_hflags)(struct x86_emulate_ctxt *ctxt, unsigned hflags);
++ void (*trace_kvm_em_syscall)(ulong syscall_num, struct syscall_arguments *sargs);
++ void (*trace_kvm_em_sysret)(ulong ret_val);
++ void (*trace_kvm_execve)(u8 *filename, ulong len);
++ void (*trace_kvm_open)(u8 *filename, ulong len);
+ };
+ 
+ typedef u32 __attribute__((vector_size(16))) sse128_t;
